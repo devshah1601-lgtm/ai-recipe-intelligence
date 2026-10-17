@@ -1,0 +1,95 @@
+{
+  "total_recipes": 4743,
+  "training_samples": 3794,
+  "testing_samples": 949,
+  "accuracy": 0.6891464699683878,
+  "classification_report": {
+    "Breakfast": {
+      "precision": 0.6394557823129252,
+      "recall": 0.6394557823129252,
+      "f1-score": 0.6394557823129252,
+      "support": 147.0
+    },
+    "Dessert": {
+      "precision": 0.7468354430379747,
+      "recall": 0.9007633587786259,
+      "f1-score": 0.8166089965397924,
+      "support": 131.0
+    },
+    "Dinner": {
+      "precision": 0.48427672955974843,
+      "recall": 0.5032679738562091,
+      "f1-score": 0.4935897435897436,
+      "support": 153.0
+    },
+    "Lunch": {
+      "precision": 0.7514970059880239,
+      "recall": 0.7254335260115607,
+      "f1-score": 0.7382352941176471,
+      "support": 346.0
+    },
+    "Snack": {
+      "precision": 0.7549668874172185,
+      "recall": 0.6627906976744186,
+      "f1-score": 0.7058823529411765,
+      "support": 172.0
+    },
+    "accuracy": 0.6891464699683878,
+    "macro avg": {
+      "precision": 0.6754063696631781,
+      "recall": 0.6863422677267479,
+      "f1-score": 0.6787544339002569,
+      "support": 949.0
+    },
+    "weighted avg": {
+      "precision": 0.691045364982333,
+      "recall": 0.6891464699683878,
+      "f1-score": 0.6884469818614665,
+      "support": 949.0
+    }
+  },
+  "labels": [
+    "Breakfast",
+    "Dessert",
+    "Dinner",
+    "Lunch",
+    "Snack"
+  ],
+  "confusion_matrix": [
+    [
+      94,
+      11,
+      16,
+      16,
+      10
+    ],
+    [
+      2,
+      118,
+      2,
+      2,
+      7
+    ],
+    [
+      9,
+      2,
+      77,
+      57,
+      8
+    ],
+    [
+      23,
+      3,
+      57,
+      251,
+      12
+    ],
+    [
+      19,
+      24,
+      7,
+      8,
+      114
+    ]
+  ]
+}

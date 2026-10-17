@@ -1,0 +1,13 @@
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2.8,<3
+python-multipart>=0.0.9
+httpx>=0.27,<1
+requests
+beautifulsoup4>=4.12,<5
+scikit-learn
+joblib
+pandas
+ollama
+pytest>=8,<10

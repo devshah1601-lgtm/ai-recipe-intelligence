@@ -1,0 +1,59 @@
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Frontend dependencies and build outputs
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local databases and SQLite temporary files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Local data and backups
+data/backups/
+*.bak
+*.backup
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+project_structure.txt
+
+# Archived prototype
+archive/
+
+# Editor and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+# Original dataset - retained locally for training and analysis
+data/raw/IndianFoodDatasetCSV.csv
+# Training data - retained locally
+data/processed/meal_training.csv
+
+# Old frontend backup
+frontend/src/App.backup.txt
