@@ -288,3 +288,89 @@ def get_dataset_recipe_by_id(recipe_id: int):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def initialize_video_recipe_db():
+    with get_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_recipes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_hash TEXT UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                recipe_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+
+def save_video_recipe(recipe: dict, video_hash: str):
+    video_hash = video_hash.lower()
+
+    if len(video_hash) != 64 or any(
+        char not in "0123456789abcdef" for char in video_hash
+    ):
+        raise ValueError("Invalid video SHA-256 hash.")
+
+    initialize_video_recipe_db()
+
+    now = datetime.now(timezone.utc).isoformat()
+    title = recipe.get("title") or "Untitled Video Recipe"
+
+    with get_connection() as connection:
+        existing = connection.execute(
+            "SELECT id FROM video_recipes WHERE video_hash = ?",
+            (video_hash,),
+        ).fetchone()
+
+        if existing:
+            return {
+                "status": "duplicate",
+                "id": existing["id"],
+            }
+
+        cursor = connection.execute(
+            """
+            INSERT INTO video_recipes (
+                video_hash,
+                title,
+                recipe_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                video_hash,
+                title,
+                json.dumps(recipe, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+
+        return {
+            "status": "saved",
+            "id": cursor.lastrowid,
+        }
+
+
+def list_video_recipes():
+    initialize_video_recipe_db()
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                title,
+                created_at,
+                updated_at
+            FROM video_recipes
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+
+    return [dict(row) for row in rows]

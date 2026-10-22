@@ -39,6 +39,8 @@ from app.services.video_ingredient_extractor import extract_video_ingredients
 from app.services.gemini_video_analyzer import analyze_video_with_gemini
 from app.services.ingredient_verifier import compare_ingredients
 from threading import Lock
+import hashlib
+from app.services.recipe_store import save_video_recipe
 
 app = FastAPI(title="AI Recipe Intelligence Platform", version="0.1.0")
 
@@ -482,6 +484,7 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
             frames_dir = work_dir / "frames"
 
             total_bytes = 0
+            video_hasher = hashlib.sha256()
 
             with video_path.open("wb") as destination:
                 while chunk := await file.read(1024 * 1024):
@@ -494,6 +497,7 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
                         )
 
                     destination.write(chunk)
+                    video_hasher.update(chunk)
 
             if total_bytes == 0:
                 raise HTTPException(
@@ -569,7 +573,7 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
                 ocr_result.get("ingredients", []),
             )
 
-            return {
+            recipe = {
                 "source_type": "video",
                 "extraction_method": "gemini_with_ocr_verification",
                 "title": gemini_recipe.get("title"),
@@ -595,6 +599,19 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
                     "ingredient_analysis", {}
                 ),
             }
+
+            save_result = await run_in_threadpool(
+                save_video_recipe,
+                recipe,
+                video_hasher.hexdigest(),
+            )
+
+            recipe["storage"] = {
+                "status": save_result["status"],
+                "id": save_result["id"],
+            }
+
+            return recipe
 
     finally:
         await file.close()
