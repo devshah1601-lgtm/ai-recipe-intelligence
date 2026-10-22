@@ -48,7 +48,7 @@ const menuItems: {
     id: "video",
     label: "Video to Recipe",
     icon: Video,
-    available: false,
+    available: true,
   },
   {
     id: "review",

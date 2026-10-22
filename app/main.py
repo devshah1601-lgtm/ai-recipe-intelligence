@@ -1,4 +1,15 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+import time
+import asyncio
+import subprocess
+import tempfile
+from pathlib import Path
+
+from fastapi import HTTPException
+from fastapi.concurrency import run_in_threadpool
+from app.services.video_ingredient_finalizer import finalize_video_ingredients
+from app.services.video_ocr import get_video_ocr
+from app.services.video_recipe_builder import build_video_recipe_data
 from app.services.recipe_store import get_dataset_recipe_by_id
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
@@ -24,6 +35,10 @@ from app.services.recipe_store import (
     save_dataset_recipe,
 )
 from app.services.recipe_store import get_dataset_recipe_stats
+from app.services.video_ingredient_extractor import extract_video_ingredients
+from app.services.gemini_video_analyzer import analyze_video_with_gemini
+from app.services.ingredient_verifier import compare_ingredients
+from threading import Lock
 
 app = FastAPI(title="AI Recipe Intelligence Platform", version="0.1.0")
 
@@ -282,9 +297,153 @@ async def import_recipe_dataset(file: UploadFile = File(...)):
     return result
 
 
-@app.post("/videos/upload", status_code=501)
+MAX_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB
+gemini_analysis_lock = Lock()
+
+
+def process_video(video_path: Path, frames_dir: Path):
+    total_start = time.perf_counter()
+
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", str(video_path),
+        "-vf", "fps=2",
+        "-frames:v", "120",
+        str(frames_dir / "frame_%03d.png"),
+    ]
+
+    print("[Video] Starting FFmpeg frame extraction...", flush=True)
+
+    start = time.perf_counter()
+
+    subprocess.run(
+        command,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+
+    ffmpeg_time = time.perf_counter() - start
+
+    print("[Video] FFmpeg frame extraction completed.", flush=True)
+
+    print("[Video] Starting EasyOCR extraction...", flush=True)
+
+    start = time.perf_counter()
+    ocr = get_video_ocr()
+    model_load_time = time.perf_counter() - start
+
+    start = time.perf_counter()
+    raw_results = ocr.extract_text(str(frames_dir))
+    ocr_time = time.perf_counter() - start
+
+    start = time.perf_counter()
+    result = build_video_recipe_data(raw_results)
+    recipe_builder_time = time.perf_counter() - start
+
+    print("[Video] EasyOCR extraction completed.", flush=True)
+
+    start = time.perf_counter()
+    ingredient_analysis = extract_video_ingredients(raw_results)
+    ingredient_time = time.perf_counter() - start
+
+    # Keep original ingredients for debugging
+    result["original_ingredients"] = result.get("ingredients", []).copy()
+
+    # Generate the clean ingredient list
+    final_ingredients = finalize_video_ingredients(ingredient_analysis)
+
+    # Update the final API response
+    result["ingredients"] = final_ingredients
+    result["ingredient_count"] = len(final_ingredients)
+
+    # Preserve OCR and ingredient analysis
+    result["raw_detection_count"] = len(raw_results)
+    result["ingredient_analysis"] = ingredient_analysis
+
+    print("\n=== VIDEO PERFORMANCE REPORT ===")
+    print(f"FFmpeg: {ffmpeg_time:.2f}s")
+    print(f"OCR model initialization: {model_load_time:.2f}s")
+    print(f"OCR frame processing: {ocr_time:.2f}s")
+    print(f"Recipe builder: {recipe_builder_time:.2f}s")
+    print(f"Ingredient analysis: {ingredient_time:.2f}s")
+    print(f"Total processing: {time.perf_counter() - total_start:.2f}s")
+    print("================================\n")
+
+    return result
+
+
+@app.post("/videos/upload")
 async def video_upload(file: UploadFile = File(...)):
-    raise HTTPException(501, "Video extraction is scheduled for Phase 4")
+    filename = file.filename or ""
+
+    if Path(filename).suffix.lower() != ".mp4":
+        raise HTTPException(
+            status_code=400,
+            detail="Only MP4 videos are supported right now.",
+        )
+
+    if file.content_type not in ("video/mp4", "application/octet-stream"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid video content type.",
+        )
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="recipe_video_") as temp:
+            work_dir = Path(temp)
+            video_path = work_dir / "input.mp4"
+            frames_dir = work_dir / "frames"
+
+            total_bytes = 0
+
+            with video_path.open("wb") as destination:
+                while chunk := await file.read(1024 * 1024):
+                    total_bytes += len(chunk)
+
+                    if total_bytes > MAX_VIDEO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Video exceeds the 50 MB limit.",
+                        )
+
+                    destination.write(chunk)
+
+            if total_bytes == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Uploaded video is empty.",
+                )
+
+            try:
+                result = await run_in_threadpool(
+                    process_video,
+                    video_path,
+                    frames_dir,
+                )
+
+                return result
+
+            except subprocess.TimeoutExpired:
+                raise HTTPException(
+                    status_code=408,
+                    detail="Video frame extraction timed out.",
+                )
+
+            except subprocess.CalledProcessError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="FFmpeg could not decode the uploaded video.",
+                )
+
+    finally:
+        await file.close()
 
 
 from pydantic import BaseModel
@@ -293,6 +452,153 @@ from app.services.ai_extractor import extract_ingredients_rules
 
 class IngredientRequest(BaseModel):
     text: str
+
+
+@app.post("/videos/analyze-recipe")
+async def analyze_video_recipe(file: UploadFile = File(...)):
+    filename = file.filename or ""
+
+    if Path(filename).suffix.lower() != ".mp4":
+        raise HTTPException(
+            status_code=400,
+            detail="Only MP4 videos are supported.",
+        )
+
+    if file.content_type not in (
+        "video/mp4",
+        "application/octet-stream",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid video content type.",
+        )
+
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="recipe_analysis_"
+        ) as temp:
+            work_dir = Path(temp)
+            video_path = work_dir / "input.mp4"
+            frames_dir = work_dir / "frames"
+
+            total_bytes = 0
+
+            with video_path.open("wb") as destination:
+                while chunk := await file.read(1024 * 1024):
+                    total_bytes += len(chunk)
+
+                    if total_bytes > MAX_VIDEO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Video exceeds the 50 MB limit.",
+                        )
+
+                    destination.write(chunk)
+
+            if total_bytes == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Uploaded video is empty.",
+                )
+
+            try:
+                # Gemini generates the structured recipe.
+                def analyze_with_lock():
+                    if not gemini_analysis_lock.acquire(blocking=False):
+                        raise RuntimeError("GEMINI_ANALYSIS_BUSY")
+
+                    try:
+                        return analyze_video_with_gemini(video_path)
+                    finally:
+                        gemini_analysis_lock.release()
+
+                gemini_recipe = await run_in_threadpool(
+                    analyze_with_lock
+                )
+
+            except RuntimeError as exc:
+                if str(exc) == "GEMINI_ANALYSIS_BUSY":
+                    raise HTTPException(
+                        status_code=429,
+                        detail="A Gemini video analysis is already running. Please wait."
+                    ) from exc
+
+                print(f"Gemini analysis failed: {type(exc).__name__}: {exc}")
+                raise HTTPException(
+                    status_code=502,
+                    detail="Gemini video analysis failed."
+                ) from exc
+
+            except Exception as exc:
+                print(
+                    f"Gemini analysis failed: {type(exc).__name__}: {exc}",
+                    flush=True
+                )
+
+                if getattr(exc, "code", None) == 503:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="AI recipe analysis is temporarily unavailable. Please try again later.",
+                        headers={"Retry-After": "120"},
+                    ) from exc
+
+                raise HTTPException(
+                    status_code=502,
+                    detail="Gemini video analysis failed."
+                ) from exc
+
+            try:
+                # EasyOCR extracts supporting ingredient evidence.
+                ocr_result = await run_in_threadpool(
+                    process_video,
+                    video_path,
+                    frames_dir,
+                )
+
+            except (
+                subprocess.TimeoutExpired,
+                subprocess.CalledProcessError,
+            ) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Local video processing failed.",
+                ) from exc
+
+            verified_ingredients = compare_ingredients(
+                gemini_recipe.get("ingredients", []),
+                ocr_result.get("ingredients", []),
+            )
+
+            return {
+                "source_type": "video",
+                "extraction_method": "gemini_with_ocr_verification",
+                "title": gemini_recipe.get("title"),
+                "ingredients": verified_ingredients,
+                "ingredient_count": len(verified_ingredients),
+                "instructions": gemini_recipe.get(
+                    "instructions", []
+                ),
+                "uncertain_details": gemini_recipe.get(
+                    "uncertain_details", []
+                ),
+                "verification_summary": {
+                    "ocr_corroborated": sum(
+                        ingredient["ocr_confirmed"]
+                        for ingredient in verified_ingredients
+                    ),
+                    "needs_visual_review": sum(
+                        not ingredient["ocr_confirmed"]
+                        for ingredient in verified_ingredients
+                    ),
+                },
+                "ocr_ingredient_analysis": ocr_result.get(
+                    "ingredient_analysis", {}
+                ),
+            }
+
+    finally:
+        await file.close()
+
 
 
 @app.post("/extract-ingredients")

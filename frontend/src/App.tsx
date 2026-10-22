@@ -8,6 +8,7 @@ import Sidebar, { type Page } from "@/components/Sidebar"
 import Dashboard from "@/components/Dashboard"
 import BulkCSV from "@/components/BulkCSV"
 import ModelReview from "@/components/ModelReview"
+import VideoExtractor from "@/components/VideoExtractor"
 
 
 type Ingredient = string | {
@@ -209,6 +210,8 @@ setRecipe(extractedRecipe)
 {activePage === "csv" && <BulkCSV />}
 
 {activePage === "review" && <ModelReview />}
+
+{activePage === "video" && <VideoExtractor />}
 
 {activePage === "extractor" && (
   <>

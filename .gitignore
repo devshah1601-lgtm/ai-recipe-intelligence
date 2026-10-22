@@ -57,3 +57,15 @@ data/processed/meal_training.csv
 
 # Old frontend backup
 frontend/src/App.backup.txt
+# Local video testing files
+data/video_tests/
+
+# Local video uploads and temporary media
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Local API credentials
+credentials.json
+service-account*.json
