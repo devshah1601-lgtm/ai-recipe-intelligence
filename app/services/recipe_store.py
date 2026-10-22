@@ -374,3 +374,26 @@ def list_video_recipes():
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+def get_video_recipe_by_id(recipe_id: int):
+    initialize_video_recipe_db()
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, recipe_json, created_at, updated_at
+            FROM video_recipes
+            WHERE id = ?
+            """,
+            (recipe_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row["id"],
+        "recipe": json.loads(row["recipe_json"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }

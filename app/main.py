@@ -40,7 +40,11 @@ from app.services.gemini_video_analyzer import analyze_video_with_gemini
 from app.services.ingredient_verifier import compare_ingredients
 from threading import Lock
 import hashlib
-from app.services.recipe_store import save_video_recipe
+from app.services.recipe_store import (
+    save_video_recipe,
+    list_video_recipes,
+    get_video_recipe_by_id,
+)
 
 app = FastAPI(title="AI Recipe Intelligence Platform", version="0.1.0")
 
@@ -776,6 +780,30 @@ def get_dataset_recipe_details(recipe_id: int):
         raise HTTPException(
             status_code=404,
             detail="Recipe not found.",
+        )
+
+    return result
+
+@app.get("/recipes/video/saved")
+async def get_saved_video_recipes():
+    recipes = await run_in_threadpool(list_video_recipes)
+
+    return {
+        "total": len(recipes),
+        "recipes": recipes,
+    }
+
+@app.get("/recipes/video/saved/{recipe_id}")
+async def get_saved_video_recipe(recipe_id: int):
+    result = await run_in_threadpool(
+        get_video_recipe_by_id,
+        recipe_id,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Saved video recipe not found.",
         )
 
     return result
