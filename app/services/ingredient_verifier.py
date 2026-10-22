@@ -6,6 +6,13 @@ ALIASES = {
     "chillies flakes": "chilli flakes",
     "chili flakes": "chilli flakes",
     "maggi masale": "maggi masala",
+    "tomatoes": "tomato",
+    "green chillies": "green chilli",
+    "green chilies": "green chilli",
+    "mozzarella cheese": "mozzarella",
+    "spring onions": "spring onion",
+    "potatoes": "potato",
+    "eggs": "egg",
 }
 
 

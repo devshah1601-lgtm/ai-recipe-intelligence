@@ -523,6 +523,16 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
                 gemini_recipe = await run_in_threadpool(
                     analyze_with_lock
                 )
+            except ValueError as exc:
+                print(
+                    f"Gemini returned an invalid recipe: {exc}",
+                    flush=True,
+                )
+
+                raise HTTPException(
+                    status_code=502,
+                    detail="AI returned an invalid recipe structure. Please try again.",
+                ) from exc
 
             except RuntimeError as exc:
                 if str(exc) == "GEMINI_ANALYSIS_BUSY":

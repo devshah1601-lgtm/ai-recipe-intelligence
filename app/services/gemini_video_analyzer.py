@@ -9,6 +9,87 @@ from google.genai import types
 
 
 GEMINI_MODEL = "gemini-3.5-flash-lite"
+def validate_recipe_response(recipe: dict) -> dict:
+    if not isinstance(recipe, dict):
+        raise ValueError("Gemini response must be a JSON object.")
+
+    if not isinstance(recipe.get("title"), str) or not recipe["title"].strip():
+        raise ValueError("Gemini response has an invalid title.")
+
+    ingredients = recipe.get("ingredients")
+
+    if not isinstance(ingredients, list):
+        raise ValueError("Gemini ingredients must be a list.")
+
+    for index, ingredient in enumerate(ingredients):
+        if not isinstance(ingredient, dict):
+            raise ValueError(
+                f"Ingredient {index + 1} must be an object."
+            )
+
+        if (
+            not isinstance(ingredient.get("name"), str)
+            or not ingredient["name"].strip()
+        ):
+            raise ValueError(
+                f"Ingredient {index + 1} has an invalid name."
+            )
+
+        quantity = ingredient.get("quantity")
+
+        if quantity is not None and (
+            isinstance(quantity, bool)
+            or not isinstance(quantity, (str, int, float))
+        ):
+            raise ValueError(
+                f"Ingredient {index + 1} has an invalid quantity."
+            )
+
+        unit = ingredient.get("unit")
+
+        if unit is not None and not isinstance(unit, str):
+            raise ValueError(
+                f"Ingredient {index + 1} has an invalid unit."
+            )
+
+    instructions = recipe.get("instructions")
+    if not isinstance(instructions, list):
+        raise ValueError("Gemini instructions must be a list.")
+
+    for index, instruction in enumerate(instructions):
+        if not isinstance(instruction, dict):
+            raise ValueError(f"Instruction {index + 1} must be an object.")
+
+        if not isinstance(instruction.get("description"), str) or not instruction["description"].strip():
+            raise ValueError(f"Instruction {index + 1} has an invalid description.")
+
+        step_number = instruction.get("step_number")
+        if (
+            not isinstance(step_number, int)
+            or isinstance(step_number, bool)
+            or step_number < 1
+        ):
+            raise ValueError(
+                f"Instruction {index + 1} has an invalid step number."
+            )
+
+        timestamp = instruction.get("timestamp_seconds")
+        if timestamp is not None and (
+            isinstance(timestamp, bool)
+            or not isinstance(timestamp, (int, float))
+            or not 0 <= timestamp < float("inf")
+        ):
+            raise ValueError(
+                f"Instruction {index + 1} has an invalid timestamp."
+            )
+
+    uncertain_details = recipe.get("uncertain_details", [])
+    if not isinstance(uncertain_details, list):
+        raise ValueError("Gemini uncertain_details must be a list.")
+
+    recipe["uncertain_details"] = uncertain_details
+
+    return recipe
 
 
 def analyze_video_with_gemini(video_path: Path) -> dict:
@@ -92,10 +173,7 @@ def analyze_video_with_gemini(video_path: Path) -> dict:
         recipe = json.loads(response.text)
         print("[Gemini] Recipe JSON parsed successfully.", flush=True)
 
-        if not isinstance(recipe, dict):
-            raise ValueError("Gemini response must be a JSON object.")
-
-        return recipe
+        return validate_recipe_response(recipe)
 
     finally:
         if uploaded_file is not None:
