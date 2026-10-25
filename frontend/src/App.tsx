@@ -17,6 +17,11 @@ type Ingredient = string | {
   unit?: string | null
   notes?: string | null
   raw?: string | null
+  ocr_confirmed?: boolean
+ocr_first_seen_seconds?: number | null
+verification_status?: string
+match_type?: string | null
+ocr_source_status?: string | null
 }
 
 
@@ -32,7 +37,15 @@ type Recipe = {
   title?: string
   description?: string
   ingredients?: Ingredient[]
-  instructions?: (string | { text?: string })[]
+  instructions?: (
+  | string
+  | {
+      text?: string
+      description?: string
+      step_number?: number
+      timestamp_seconds?: number | null
+    }
+)[]
   prep_time?: unknown
   cook_time?: unknown
   total_time?: unknown
@@ -43,6 +56,20 @@ type Recipe = {
   message?: string
   source_url?: string
   ml_prediction?: MLPrediction
+  source_type?: string
+video_platform?: string
+
+storage?: {
+  status?: string
+  id?: number
+}
+
+uncertain_details?: string[]
+
+verification_summary?: {
+  ocr_corroborated?: number
+  needs_visual_review?: number
+}
 }
 
 
@@ -267,6 +294,35 @@ setRecipe(extractedRecipe)
 
             <CardContent className="space-y-6">
               <div className="flex flex-wrap gap-2">
+                {recipe.source_type === "video" && (
+  <>
+    <Badge className="bg-purple-600 text-white">
+      🎥 Video Recipe
+    </Badge>
+
+    {recipe.video_platform && (
+      <Badge variant="secondary">
+        {recipe.video_platform === "instagram"
+          ? "Instagram Reel"
+          : recipe.video_platform === "youtube"
+          ? "YouTube Video"
+          : recipe.video_platform}
+      </Badge>
+    )}
+
+    {recipe.storage?.status === "cached" && (
+      <Badge className="bg-blue-600 text-white">
+        ⚡ Loaded from Cache
+      </Badge>
+    )}
+
+    {recipe.storage?.status === "saved" && (
+      <Badge className="bg-emerald-600 text-white">
+        ✓ Recipe Saved
+      </Badge>
+    )}
+  </>
+)}
                 
               {recipe.prep_time != null && (
                 <Badge variant="secondary">
@@ -360,6 +416,20 @@ setRecipe(extractedRecipe)
             )}
 
 
+              {recipe.uncertain_details &&
+  recipe.uncertain_details.length > 0 && (
+    <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <h2 className="mb-2 font-semibold text-amber-900">
+        ⚠️ Recipe Details to Review
+      </h2>
+
+      <ul className="list-disc space-y-1 pl-5 text-sm text-amber-800">
+        {recipe.uncertain_details.map((detail, index) => (
+          <li key={index}>{detail}</li>
+        ))}
+      </ul>
+    </section>
+  )}
               <section>
                 <h2 className="mb-3 text-xl font-semibold">
                   Ingredients
@@ -367,12 +437,50 @@ setRecipe(extractedRecipe)
 
                 {recipe.ingredients?.length ? (
                   <ul className="space-y-2">
-                    {recipe.ingredients.map((ingredient, index) => (
-                      <li key={index} className="flex gap-2">
-                        <input type="checkbox" className="accent-emerald-600" />
-                        <span>{ingredientText(ingredient)}</span>
-                      </li>
-                    ))}
+                    {recipe.ingredients.map((ingredient, index) => {
+  const details =
+    typeof ingredient === "string" ? null : ingredient
+
+  return (
+    <li
+      key={index}
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 p-2"
+    >
+      <input
+        type="checkbox"
+        className="accent-emerald-600"
+      />
+
+      <span className="flex-1">
+        {ingredientText(ingredient)}
+      </span>
+
+      {recipe.source_type === "video" && details && (
+        <>
+          {details.verification_status === "text_corroborated" ? (
+            <Badge className="bg-emerald-600 text-white">
+              ✓ OCR Match
+            </Badge>
+          ) : details.verification_status === "possible_text_match" ? (
+            <Badge className="bg-amber-500 text-white">
+              ~ Possible Match
+            </Badge>
+          ) : (
+            <Badge variant="outline">
+              Needs Review
+            </Badge>
+          )}
+
+          {typeof details.ocr_first_seen_seconds === "number" && (
+            <span className="text-xs text-gray-500">
+              ⏱ {details.ocr_first_seen_seconds}s
+            </span>
+          )}
+        </>
+      )}
+    </li>
+  )
+})}
                   </ul>
                 ) : (
                   <p className="text-gray-500">No ingredients found.</p>
@@ -388,9 +496,20 @@ setRecipe(extractedRecipe)
                   <ol className="list-decimal space-y-3 pl-5">
                     {recipe.instructions.map((step, index) => (
                       <li key={index}>
-                        {typeof step === "string"
-                          ? step
-                          : step.text ?? ""}
+                        <div className="flex flex-col gap-1">
+                          <span>
+                            {typeof step === "string"
+                              ? step
+                              : step.description ?? step.text ?? ""}
+                          </span>
+
+                          {typeof step !== "string" &&
+                            typeof step.timestamp_seconds === "number" && (
+                              <span className="text-xs text-emerald-700">
+                                ⏱ Video timestamp: {step.timestamp_seconds}s
+                              </span>
+                            )}
+                        </div>
                       </li>
                     ))}
                   </ol>

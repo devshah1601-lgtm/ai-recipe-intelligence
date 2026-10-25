@@ -69,3 +69,21 @@ data/video_tests/
 # Local API credentials
 credentials.json
 service-account*.json
+# Nested project copy
+/ai-recipe-intelligence/
+
+# Local backups
+/backups/
+
+# Downloaded media
+*.webm
+*.m4a
+*.mp3
+*.part
+*.ytdl
+
+# Temporary experiments
+/requirements-before-cuda.txt
+/test_gemini_503.py
+/test_gemini_busy.py
+/test_gemini_video.py

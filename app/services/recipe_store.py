@@ -3,6 +3,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 DATABASE_PATH = (
@@ -397,3 +398,114 @@ def get_video_recipe_by_id(recipe_id: int):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+def normalize_video_url(url: str) -> str:
+    """
+    Convert supported YouTube and Instagram URLs
+    into a consistent cache key.
+    """
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.strip("/")
+    parts = path.split("/")
+
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        if path == "watch":
+            from urllib.parse import parse_qs
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+        elif parts[0] in ("shorts", "embed") and len(parts) > 1:
+            video_id = parts[1]
+        else:
+            raise ValueError("Unsupported YouTube URL.")
+
+        if not video_id:
+            raise ValueError("Missing YouTube video ID.")
+
+        return f"youtube:{video_id}"
+
+    if host == "youtu.be":
+        if not path:
+            raise ValueError("Missing YouTube video ID.")
+
+        return f"youtube:{parts[0]}"
+
+    if host in ("instagram.com", "www.instagram.com"):
+        if len(parts) >= 2 and parts[0] in ("reel", "reels", "p", "tv"):
+            return f"instagram:{parts[1]}"
+
+        raise ValueError("Unsupported Instagram video URL.")
+
+    raise ValueError("Unsupported video platform.")
+
+
+def initialize_video_url_cache():
+    with get_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_url_cache (
+                url_key TEXT PRIMARY KEY,
+                video_recipe_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (video_recipe_id)
+                    REFERENCES video_recipes(id)
+            )
+            """
+        )
+
+
+def get_cached_video_recipe(url: str):
+    initialize_video_recipe_db()
+    initialize_video_url_cache()
+
+    url_key = normalize_video_url(url)
+
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                vr.id,
+                vr.recipe_json
+            FROM video_url_cache AS cache
+            JOIN video_recipes AS vr
+                ON vr.id = cache.video_recipe_id
+            WHERE cache.url_key = ?
+            """,
+            (url_key,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    recipe = json.loads(row["recipe_json"])
+
+    recipe["storage"] = {
+        "status": "cached",
+        "id": row["id"],
+    }
+
+    recipe["source_url"] = url
+
+    return recipe
+
+
+def cache_video_url(url: str, recipe_id: int):
+    initialize_video_recipe_db()
+    initialize_video_url_cache()
+
+    url_key = normalize_video_url(url)
+    now = datetime.now(timezone.utc).isoformat()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO video_url_cache (
+                url_key,
+                video_recipe_id,
+                created_at
+            )
+            VALUES (?, ?, ?)
+            ON CONFLICT(url_key) DO UPDATE SET
+                video_recipe_id = excluded.video_recipe_id
+            """,
+            (url_key, recipe_id, now),
+        )

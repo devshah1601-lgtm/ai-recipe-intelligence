@@ -40,7 +40,7 @@ class VideoOCR:
 
                 frame_number = int(frame.stem.split("_")[-1])
 
-                timestamp = (frame_number - 1) / 2
+                timestamp = (frame_number - 1) / 0.5
 
                 results.append({
                     "frame": frame.name,

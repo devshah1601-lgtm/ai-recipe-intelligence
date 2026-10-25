@@ -45,6 +45,14 @@ from app.services.recipe_store import (
     list_video_recipes,
     get_video_recipe_by_id,
 )
+from app.services.video_url_downloader import (
+    detect_video_platform,
+    download_video_from_url,
+)
+from app.services.recipe_store import (
+    get_cached_video_recipe,
+    cache_video_url,
+)
 
 app = FastAPI(title="AI Recipe Intelligence Platform", version="0.1.0")
 
@@ -318,7 +326,7 @@ def process_video(video_path: Path, frames_dir: Path):
         "-hide_banner",
         "-loglevel", "error",
         "-i", str(video_path),
-        "-vf", "fps=2",
+        "-vf", "fps=0.5,scale=640:-2",
         "-frames:v", "120",
         str(frames_dir / "frame_%03d.png"),
     ]
@@ -460,6 +468,88 @@ class IngredientRequest(BaseModel):
     text: str
 
 
+
+def process_video_recipe(video_path: Path, frames_dir: Path) -> dict:
+    """
+    Analyze a local MP4 using Gemini and EasyOCR,
+    verify ingredients, and save the recipe.
+    """
+
+    total_start = time.perf_counter()
+    if not gemini_analysis_lock.acquire(blocking=False):
+        raise RuntimeError("GEMINI_ANALYSIS_BUSY")
+
+    try:
+        gemini_start = time.perf_counter()
+
+        gemini_recipe = analyze_video_with_gemini(video_path)
+
+        gemini_seconds = time.perf_counter() - gemini_start
+        print(f"[Performance] Gemini: {gemini_seconds:.2f}s", flush=True)
+    finally:
+        gemini_analysis_lock.release()
+
+    ocr_start = time.perf_counter()
+
+    ocr_result = process_video(video_path, frames_dir)
+
+    ocr_seconds = time.perf_counter() - ocr_start
+    print(f"[Performance] OCR pipeline: {ocr_seconds:.2f}s", flush=True)
+
+    verified_ingredients = compare_ingredients(
+        gemini_recipe.get("ingredients", []),
+        ocr_result.get("ingredients", []),
+    )
+
+    recipe = {
+        "source_type": "video",
+        "extraction_method": "gemini_with_ocr_verification",
+        "title": gemini_recipe.get("title"),
+        "ingredients": verified_ingredients,
+        "ingredient_count": len(verified_ingredients),
+        "instructions": gemini_recipe.get("instructions", []),
+        "uncertain_details": gemini_recipe.get(
+            "uncertain_details", []
+        ),
+        "verification_summary": {
+            "ocr_corroborated": sum(
+                ingredient["ocr_confirmed"]
+                for ingredient in verified_ingredients
+            ),
+            "needs_visual_review": sum(
+                not ingredient["ocr_confirmed"]
+                for ingredient in verified_ingredients
+            ),
+        },
+        "ocr_ingredient_analysis": ocr_result.get(
+            "ingredient_analysis", {}
+        ),
+    }
+
+    video_hash = hashlib.sha256()
+
+    with video_path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            video_hash.update(chunk)
+
+    save_result = save_video_recipe(
+        recipe,
+        video_hash.hexdigest(),
+    )
+
+    recipe["storage"] = {
+        "status": save_result["status"],
+        "id": save_result["id"],
+    }
+
+    total_seconds = time.perf_counter() - total_start
+
+    print(
+        f"[Performance] Total video analysis: {total_seconds:.2f}s",
+        flush=True,
+    )
+    return recipe
+
 @app.post("/videos/analyze-recipe")
 async def analyze_video_recipe(file: UploadFile = File(...)):
     filename = file.filename or ""
@@ -510,122 +600,63 @@ async def analyze_video_recipe(file: UploadFile = File(...)):
                 )
 
             try:
-                # Gemini generates the structured recipe.
-                def analyze_with_lock():
-                    if not gemini_analysis_lock.acquire(blocking=False):
-                        raise RuntimeError("GEMINI_ANALYSIS_BUSY")
-
-                    try:
-                        return analyze_video_with_gemini(video_path)
-                    finally:
-                        gemini_analysis_lock.release()
-
-                gemini_recipe = await run_in_threadpool(
-                    analyze_with_lock
+                recipe = await run_in_threadpool(
+                    process_video_recipe,
+                    video_path,
+                    frames_dir,
                 )
+
+                return recipe
+
             except ValueError as exc:
-                print(
-                    f"Gemini returned an invalid recipe: {exc}",
-                    flush=True,
-                )
-
                 raise HTTPException(
                     status_code=502,
-                    detail="AI returned an invalid recipe structure. Please try again.",
+                    detail=f"Invalid recipe structure: {exc}",
                 ) from exc
 
             except RuntimeError as exc:
                 if str(exc) == "GEMINI_ANALYSIS_BUSY":
                     raise HTTPException(
                         status_code=429,
-                        detail="A Gemini video analysis is already running. Please wait."
+                        detail="Another Gemini analysis is running. Please wait.",
                     ) from exc
 
-                print(f"Gemini analysis failed: {type(exc).__name__}: {exc}")
+                print(f"Video analysis failed: {exc}", flush=True)
+
                 raise HTTPException(
                     status_code=502,
-                    detail="Gemini video analysis failed."
+                    detail="Video recipe analysis failed.",
+                ) from exc
+
+            except subprocess.TimeoutExpired as exc:
+                raise HTTPException(
+                    status_code=408,
+                    detail="Video processing timed out.",
+                ) from exc
+
+            except subprocess.CalledProcessError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="FFmpeg could not process the video.",
                 ) from exc
 
             except Exception as exc:
                 print(
-                    f"Gemini analysis failed: {type(exc).__name__}: {exc}",
-                    flush=True
+                    f"Video analysis failed: {type(exc).__name__}: {exc}",
+                    flush=True,
                 )
 
                 if getattr(exc, "code", None) == 503:
                     raise HTTPException(
                         status_code=503,
-                        detail="AI recipe analysis is temporarily unavailable. Please try again later.",
+                        detail="AI recipe analysis is temporarily unavailable.",
                         headers={"Retry-After": "120"},
                     ) from exc
 
                 raise HTTPException(
                     status_code=502,
-                    detail="Gemini video analysis failed."
+                    detail="Video recipe analysis failed.",
                 ) from exc
-
-            try:
-                # EasyOCR extracts supporting ingredient evidence.
-                ocr_result = await run_in_threadpool(
-                    process_video,
-                    video_path,
-                    frames_dir,
-                )
-
-            except (
-                subprocess.TimeoutExpired,
-                subprocess.CalledProcessError,
-            ) as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Local video processing failed.",
-                ) from exc
-
-            verified_ingredients = compare_ingredients(
-                gemini_recipe.get("ingredients", []),
-                ocr_result.get("ingredients", []),
-            )
-
-            recipe = {
-                "source_type": "video",
-                "extraction_method": "gemini_with_ocr_verification",
-                "title": gemini_recipe.get("title"),
-                "ingredients": verified_ingredients,
-                "ingredient_count": len(verified_ingredients),
-                "instructions": gemini_recipe.get(
-                    "instructions", []
-                ),
-                "uncertain_details": gemini_recipe.get(
-                    "uncertain_details", []
-                ),
-                "verification_summary": {
-                    "ocr_corroborated": sum(
-                        ingredient["ocr_confirmed"]
-                        for ingredient in verified_ingredients
-                    ),
-                    "needs_visual_review": sum(
-                        not ingredient["ocr_confirmed"]
-                        for ingredient in verified_ingredients
-                    ),
-                },
-                "ocr_ingredient_analysis": ocr_result.get(
-                    "ingredient_analysis", {}
-                ),
-            }
-
-            save_result = await run_in_threadpool(
-                save_video_recipe,
-                recipe,
-                video_hasher.hexdigest(),
-            )
-
-            recipe["storage"] = {
-                "status": save_result["status"],
-                "id": save_result["id"],
-            }
-
-            return recipe
 
     finally:
         await file.close()
@@ -648,24 +679,126 @@ class RecipeURLRequest(BaseModel):
 
 
 
-@app.post("/extract-recipe-url")
-def extract_recipe_url(request: RecipeURLRequest):
-    try:
-        raw_recipe = scrape_recipe(request.url)
+def extract_recipe_from_video_url(url: str) -> dict:
+    """
+    Return cached video recipes immediately.
+    Otherwise download, analyze, save, and cache.
+    """
 
-        recipe = normalize_recipe(raw_recipe)
+    # Step 1: Check the cache before downloading.
+    cached_recipe = get_cached_video_recipe(url)
 
-        recipe["ml_prediction"] = predict_meal_type(recipe)
-    
-        save_recipe(recipe, request.url)
+    if cached_recipe is not None:
+        print("[Cache] Video recipe found!", flush=True)
+
+        cached_recipe["video_platform"] = detect_video_platform(url)
+
+        return cached_recipe
+
+    print("[Cache] No cached recipe found.", flush=True)
+
+    # Step 2: Download and analyze only if needed.
+    with tempfile.TemporaryDirectory(
+        prefix="recipe_video_url_"
+    ) as temp:
+
+        work_dir = Path(temp)
+
+        video_path = download_video_from_url(
+            url,
+            work_dir / "download",
+        )
+
+        frames_dir = work_dir / "frames"
+
+        recipe = process_video_recipe(
+            video_path,
+            frames_dir,
+        )
+
+        recipe["source_url"] = url
+        recipe["video_platform"] = detect_video_platform(url)
+
+        # Step 3: Link this URL to the saved recipe.
+        recipe_id = recipe["storage"]["id"]
+
+        cache_video_url(url, recipe_id)
+
+        print(
+            f"[Cache] Video URL cached with recipe ID {recipe_id}",
+            flush=True,
+        )
 
         return recipe
 
-    except (ValueError, requests.exceptions.RequestException) as e:
+
+@app.post("/extract-recipe-url")
+async def extract_recipe_url(request: RecipeURLRequest):
+    url = request.url.strip()
+
+    platform = detect_video_platform(url)
+
+    if platform is not None:
+        try:
+            recipe = await run_in_threadpool(
+                extract_recipe_from_video_url,
+                url,
+            )
+            return recipe
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
+        except RuntimeError as exc:
+            if str(exc) == "GEMINI_ANALYSIS_BUSY":
+                raise HTTPException(
+                    status_code=429,
+                    detail="Another video analysis is running. Please wait.",
+                ) from exc
+
+            print(
+                f"Video URL processing failed: {exc}",
+                flush=True,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Video URL processing failed.",
+            ) from exc
+
+        except Exception as exc:
+            print(
+                f"Video URL processing failed: "
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+            if getattr(exc, "code", None) == 503:
+                raise HTTPException(
+                    status_code=503,
+                    detail="AI analysis is temporarily unavailable.",
+                    headers={"Retry-After": "120"},
+                ) from exc
+
+            raise HTTPException(
+                status_code=502,
+                detail="Could not extract a recipe from this video.",
+            ) from exc
+
+    # Keep the existing website recipe extraction working.
+    try:
+        return await run_in_threadpool(
+            process_recipe_url,
+            url,
+        )
+
+    except (ValueError, requests.exceptions.RequestException) as exc:
         raise HTTPException(
             status_code=422,
-            detail=str(e)
-        )
+            detail=str(exc),
+        ) from exc
 
 
 from typing import Any, Literal

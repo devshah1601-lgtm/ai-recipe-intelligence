@@ -7,8 +7,14 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+
 def validate_recipe_response(recipe: dict) -> dict:
     if not isinstance(recipe, dict):
         raise ValueError("Gemini response must be a JSON object.")
