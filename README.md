@@ -1,262 +1,192 @@
 # AI Recipe Intelligence Platform
 
-**An AI-powered recipe extraction, analysis, and management platform built with React, TypeScript, FastAPI, SQLite, computer vision, and machine learning.**
+**Turn recipe websites, YouTube cooking videos, and Instagram Reels into structured recipes.**
 
-The AI Recipe Intelligence Platform converts recipe website URLs, CSV datasets, and cooking videos into structured cooking information. It combines recipe extraction, ingredient normalization, machine-learning classification, video analysis, and user feedback in a unified web application.
+A full-stack AI and machine-learning project built with **React, TypeScript, FastAPI, SQLite, Gemini, EasyOCR, and scikit-learn**. The application extracts cooking information, organizes ingredients and instructions, classifies recipes, and stores results for review.
 
-The project is designed to run locally and demonstrates full-stack development, machine-learning integration, database management, API development, and automated testing.
+> **Project status:** Working local prototype. Website URL extraction, CSV workflows, and direct YouTube/Instagram video-link extraction have been demonstrated locally. This repository is not a hosted public web application.
 
-## Key Features
+## Highlights
 
-### Recipe URL Extraction
+- **Paste a URL directly:** Enter a supported recipe website, public YouTube video, or public Instagram Reel link. No manual video download or conversion is needed.
+- **Video-to-recipe generation:** Use Gemini to identify the dish, ingredients, and timestamped cooking instructions.
+- **OCR-assisted verification:** Use EasyOCR to read visible video text and flag ingredients as text-corroborated, possible matches, or requiring review.
+- **Recipe website extraction:** Collect available recipe details and normalize them into a consistent structure.
+- **Bulk CSV workflows:** Process lists of recipe URLs and import structured recipe datasets.
+- **Meal-type classification:** Predict Breakfast, Lunch, Dinner, Snack, or Dessert using a scikit-learn TF-IDF and Logistic Regression pipeline.
+- **Feedback workflow:** Save user corrections for review and experimental candidate-model training.
+- **Persistence and caching:** Store recipes in SQLite and reuse previously analyzed video-link results.
+- **React dashboard:** Explore extracted recipes, imported datasets, classification feedback, and review items.
 
-- Extract recipes from supported websites.
-- Retrieve available titles, descriptions, ingredients, cooking instructions, preparation times, and serving information.
-- Normalize recipe information into a consistent structure.
-- Predict meal categories using machine learning.
-- Flag uncertain predictions for manual review.
-- Store extracted recipes for later reference.
+## How direct video-link extraction works
 
-### Bulk CSV Processing
+```text
+YouTube / Instagram URL
+          |
+          v
+    FastAPI backend
+          |
+          +----> SQLite URL cache ----> Return saved recipe (when available)
+          |
+          v
+    Video download (yt-dlp)
+          |
+          +----> Gemini video analysis ----> Ingredients and cooking steps
+          |
+          +----> FFmpeg frames -> EasyOCR -> Visible-text evidence
+          |                                  |
+          +------------> Ingredient comparison
+                                   |
+                                   v
+                         Structured recipe JSON
+                                   |
+                                   v
+                           SQLite + React UI
+```
 
-Supports two workflows:
+The backend handles downloading and processing. Video extraction depends on the video's accessibility and the availability of the external Gemini API. OCR matches corroborate visible text; they are **not a guarantee** that every ingredient or quantity is correct.
 
-**Recipe URL CSV**
-- Process multiple recipe URLs from a CSV file.
-- Validate inputs and report individual processing results.
+## Features
 
-**Recipe Dataset CSV**
-- Import structured recipe datasets.
-- Normalize ingredient information.
-- Detect duplicate records.
-- Save imported recipes in SQLite.
-- Browse and filter saved dataset recipes.
+### Recipe website URLs
 
-### AI Video-to-Recipe Extraction
+Extract supported recipe pages, including available titles, descriptions, ingredients, cooking steps, preparation and cooking times, and servings. Normalize the result, predict a meal category, flag uncertain predictions, and save extracted recipes.
 
-Upload a supported cooking video and generate a structured recipe containing:
+### YouTube and Instagram video URLs
 
-- Recipe title.
-- Identified ingredients.
-- Cooking instructions.
-- Ingredient evidence from video text recognition.
-- Video timestamps associated with ingredients and cooking steps.
+Paste a public cooking-video URL into the extractor. The backend detects the platform, downloads a supported video, analyzes it using Gemini, extracts visible text using EasyOCR, and displays a structured recipe with ingredient evidence and timestamps. Previously analyzed links can return cached results.
 
-The video-processing pipeline combines AI-based analysis with OCR-assisted ingredient verification.
+Local end-to-end tests have successfully extracted recipes from both **YouTube** and **Instagram**. Processing time varies significantly with video length, OCR workload, and API response time.
 
-Video processing time and availability may vary depending on the video, local processing resources, and external AI service availability.
+### Video uploads
 
-### Machine-Learning Meal Classification
+The project also includes a video-upload workflow for supported local cooking videos. Generated recipe details may need manual review.
 
-The platform includes a scikit-learn classification pipeline using:
+### CSV processing
 
-- TF-IDF text vectorization.
-- Logistic Regression.
-- Five meal categories: Breakfast, Lunch, Dinner, Snack, and Dessert.
+Two supported workflows:
 
-The classifier analyzes recipe text and ingredients to predict a meal category.
+1. **Recipe URL CSV:** Validate and process multiple recipe website links with per-row success/error results.
+2. **Recipe dataset CSV:** Import structured recipes, normalize ingredients, detect duplicates, save them to SQLite, and browse/filter saved records.
 
-Predictions include a probability-based confidence value and a manual-review recommendation when the model is uncertain.
+### Machine-learning classification and feedback
 
-### Feedback and Candidate-Model Training
+The meal classifier uses **TF-IDF** features and **Logistic Regression** to predict five categories: Breakfast, Lunch, Dinner, Snack, and Dessert. Predictions include a confidence score and may be flagged for review.
 
-Users can submit corrections to predicted meal categories.
+Users can save category corrections. A separate **experimental candidate-model** workflow prepares feedback, checks for evaluation-set overlap, limits feedback contribution, and compares a candidate model with the active baseline.
 
-The platform stores these corrections for review and future training.
+> Saving feedback **does not automatically retrain or replace** the active classifier.
 
-A separate experimental training pipeline supports:
+## Tech stack
 
-- Preparing feedback as training examples.
-- Filtering feedback that overlaps with held-out evaluation recipes.
-- Limiting the amount of feedback added to training.
-- Training a candidate model separately from the active model.
-- Comparing candidate accuracy and macro F1 with the baseline.
-
-**Candidate-model training is an experimental workflow. Saving a correction does not automatically retrain or replace the active model.**
-
-### Dashboard and Recipe Management
-
-The dashboard provides:
-
-- Extracted recipe statistics.
-- Recipes requiring review.
-- Latest recipe information.
-- Imported dataset statistics.
-- Searchable saved dataset recipes.
-- Classification feedback review.
-
-## Technology Stack
-
-| Component | Technologies |
-|---|---|
+| Layer | Technologies |
+| --- | --- |
 | Frontend | React, TypeScript, Vite |
-| Styling | Tailwind CSS, shadcn/ui |
+| UI | Tailwind CSS, shadcn/ui |
 | Backend | Python, FastAPI |
-| Database | SQLite |
-| Machine Learning | scikit-learn, pandas, joblib |
-| ML Algorithms | TF-IDF, Logistic Regression |
-| Video Analysis | Gemini API, OCR-assisted analysis |
-| OCR | EasyOCR |
-| Recipe Extraction | Requests, Beautiful Soup |
-| API Documentation | Swagger UI |
+| Storage | SQLite |
+| Machine learning | scikit-learn, pandas, joblib |
+| Classification | TF-IDF, Logistic Regression |
+| Video retrieval | yt-dlp, FFmpeg |
+| AI video analysis | Google Gemini API |
+| OCR | EasyOCR, PyTorch |
+| Website extraction | Requests, Beautiful Soup |
 | Testing | pytest |
-| Version Control | Git, GitHub |
+| API documentation | FastAPI Swagger UI |
+| Version control | Git, GitHub |
 
+## Screenshots
 
-## Application Screenshots
+Screenshots are referenced below. Add the corresponding image files under `docs/screenshots/` if they are not already present in the repository.
 
-### Dashboard
-![Dashboard](docs/screenshots/dashboard.png)
+| Dashboard | Recipe URL extraction |
+| --- | --- |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Recipe extractor](docs/screenshots/recipe-extractor.png) |
 
-### Recipe URL Extraction
-![Recipe Extractor](docs/screenshots/recipe-extractor.png)
+| Bulk CSV | Video-to-recipe extraction |
+| --- | --- |
+| ![Bulk CSV](docs/screenshots/bulk-csv.png) | ![Video to recipe](docs/screenshots/video-to-recipe.png) |
 
-### Bulk CSV Processing
-![Bulk CSV](docs/screenshots/bulk-csv.png)
+![Model review](docs/screenshots/model-review.png)
 
-### AI Video-to-Recipe Extraction
-![Video to Recipe](docs/screenshots/video-to-recipe.png)
+## Model evaluation
 
-### Model Review
-![Model Review](docs/screenshots/model-review.png)
+The project's documented baseline evaluation used **4,743 recipes** with a stratified 80/20 train/test split.
 
-
-## Machine-Learning Evaluation
-
-The meal classifier was evaluated using a prepared dataset of 4,743 recipes.
-
-| Metric | Result |
-|---|---:|
+| Metric | Documented result |
+| --- | ---: |
 | Total recipes | 4,743 |
 | Training recipes | 3,794 |
 | Evaluation recipes | 949 |
 | Baseline test accuracy | 68.91% |
 | Baseline macro F1 | 0.6788 |
-| Categories | 5 |
+| Meal categories | 5 |
 
-The evaluation uses a stratified 80/20 train/test split.
+### Experimental feedback training
 
-### Experimental Feedback Training
-
-In a controlled experiment, one synthetic correction was added to candidate-model training.
+In a controlled experiment, one **synthetic** correction was added to candidate-model training.
 
 | Metric | Baseline | Candidate |
-|---|---:|---:|
+| --- | ---: | ---: |
 | Accuracy | 68.9146% | 69.0200% |
 | Macro F1 | 0.678754 | 0.679664 |
 
-The candidate was trained and saved separately without replacing the active model.
+The candidate was saved separately without replacing the active model. This demonstrates the training workflow; **one synthetic correction is not evidence of a general performance improvement**.
 
-These results demonstrate the operation of the feedback-training pipeline, **not a proven general improvement in predictive performance**. Further independent evaluation would be needed before production use.
-
-## Automated Testing
-
-The project includes automated backend tests covering:
-
-- Recipe-processing foundations.
-- Video API input validation and error handling.
-- Gemini response validation.
-- Ingredient verification.
-- Video recipe database storage and duplicate handling.
-- Feedback preparation and evaluation-overlap safeguards.
-
-**Latest local test result: 81 tests passed.**
-
-Run the test suite from the project root:
-
-```powershell
-python -m pytest tests/ -q
-```
-
-## Project Structure
-
-```text
-ai-recipe-intelligence/
-├── app/
-│   ├── main.py
-│   ├── ml/
-│   │   ├── recipe_classifier.py
-│   │   ├── train_model.py
-│   │   ├── feedback_training.py
-│   │   └── train_candidate.py
-│   ├── models/
-│   ├── services/
-│   └── scripts/
-├── frontend/
-├── data/
-│   ├── processed/
-│   └── raw/
-├── samples/
-├── tests/
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
-
-Some local data files, generated artifacts, experimental files, and model backups are excluded from version control.
-
-## Local Installation
+## Getting started (local development)
 
 ### Prerequisites
 
-- Python with compatible project dependencies.
-- Node.js and npm.
-- Git.
-- A supported local environment for video processing.
-- Gemini API access for AI-powered video analysis.
+- Python and a compatible environment for the project's dependencies
+- Node.js and npm
+- Git
+- FFmpeg available on your system `PATH` for video processing
+- A Gemini API key for AI video analysis
+- Internet access for video retrieval and Gemini requests
 
-### 1. Clone the Repository
+For YouTube extraction, the current downloader also uses a supported JavaScript runtime (Node.js) through yt-dlp. Video accessibility and extractor compatibility can change over time.
+
+### 1. Clone the repository
 
 ```powershell
-git clone YOUR_REPOSITORY_URL
+git clone https://github.com/devshah1601-lgtm/ai-recipe-intelligence.git
 cd ai-recipe-intelligence
 ```
 
-Replace `YOUR_REPOSITORY_URL` with the actual GitHub repository URL.
+### 2. Set up the Python backend
 
-### 2. Set Up the Backend
-
-### Configure Gemini API Access
-
-The AI Video-to-Recipe feature uses the Gemini API for video analysis.
-
-Set the `GEMINI_API_KEY` environment variable before starting the FastAPI backend.
-
-For Windows PowerShell:
+**Windows PowerShell:**
 
 ```powershell
-$env:GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-Replace `YOUR_GEMINI_API_KEY` with your own API key.
+> EasyOCR/PyTorch installation can vary by operating system and hardware. The project has been run with CPU-based OCR; a CUDA GPU is not required.
 
-Then start the backend in the same PowerShell session:
+### 3. Configure Gemini access
 
-```powershell
-python -m uvicorn app.main:app --reload --port 8001
+Create a `.env` file in the project root:
+
+```dotenv
+GEMINI_API_KEY=your_api_key_here
 ```
 
-**Security:** Never commit API keys, `.env` files containing secrets, or private credentials to GitHub.
+The backend loads this key from the environment. **Never commit your `.env` file or a real API key.** Gemini requests may be subject to quotas and rate limits; a free quota, when available, is not guaranteed.
 
-Gemini API access is subject to Google's available quotas and rate limits. The application can run locally, but AI-powered video extraction requires access to the external Gemini service.
-
-### 3. Start the Backend
+### 4. Run the backend
 
 ```powershell
 python -m uvicorn app.main:app --reload --port 8001
 ```
 
-Backend URL:
+- Backend: `http://127.0.0.1:8001`
+- Interactive API docs: `http://127.0.0.1:8001/docs`
 
-`http://127.0.0.1:8001`
+### 5. Run the frontend
 
-Interactive API documentation:
-
-`http://127.0.0.1:8001/docs`
-
-### 4. Start the Frontend
-
-Open a second terminal:
+In a **second terminal**, from the project root:
 
 ```powershell
 cd frontend
@@ -264,60 +194,92 @@ npm install
 npm run dev
 ```
 
-Open:
+Open `http://localhost:5173`.
 
-`http://localhost:5173`
+The frontend communicates with the local FastAPI backend. If you change ports, update the corresponding frontend proxy/API configuration.
 
-The frontend communicates with the locally running FastAPI backend.
+## Example demonstration
 
-## Demonstration Workflow
+1. Start the backend and frontend.
+2. Paste a supported recipe website URL to generate a structured recipe.
+3. Paste a public YouTube cooking-video or Instagram Reel URL to generate a recipe from video.
+4. Review ingredients, text-verification badges, and timestamped instructions.
+5. Reuse the same video URL to demonstrate caching.
+6. Open the dashboard, CSV workflows, and model-review screens.
+7. Save a classification correction and inspect it in the feedback workflow.
 
-1. Open the dashboard to view recipe statistics.
-2. Extract a recipe using a supported website URL.
-3. Review the extracted ingredients, instructions, and meal classification.
-4. Submit a correction for an uncertain classification.
-5. Open Model Review to inspect saved corrections.
-6. Process a recipe URL CSV or import a structured recipe dataset.
-7. Browse saved dataset recipes.
-8. Upload a cooking video and view its extracted ingredients and timestamped cooking instructions.
+## Automated tests
 
-## Demo Video
+The project includes backend tests for recipe processing, video input validation, Gemini response validation, ingredient verification, video storage/duplicate handling, and feedback-training safeguards.
 
-A recorded walkthrough of the locally running application will be added here.
+The previous README reported **81 passing local tests**. Rerun the suite to confirm the current result:
 
-The demonstration will cover the dashboard, URL extraction, CSV processing, video-to-recipe extraction, and model feedback.
+```powershell
+python -m pytest tests/ -q
+```
 
-**Demo link:** Coming soon.
+Additional local experiment scripts may exist outside the tracked test suite.
 
-## Current Limitations
+## Project structure
 
-- Recipe extraction depends on website accessibility and supported page structures.
-- AI-generated video results may contain missing or incorrect ingredients and instructions.
-- Video processing can be slower than URL extraction and may depend on Gemini API availability or quota.
-- Meal-category predictions are imperfect, especially for recipes that fit multiple meal occasions.
-- Classifier probabilities are not calibrated guarantees of correctness.
-- Feedback does not automatically update the active model.
-- Local database files and the complete training dataset are not included in the public repository.
-- The application is intended for local demonstration and has not been prepared for public multi-user deployment.
+```text
+ai-recipe-intelligence/
+├── app/
+│   ├── main.py
+│   ├── ml/
+│   ├── models/
+│   ├── services/
+│   │   ├── gemini_video_analyzer.py
+│   │   ├── ingredient_verifier.py
+│   │   ├── recipe_store.py
+│   │   ├── video_ocr.py
+│   │   └── video_url_downloader.py
+│   └── scripts/
+├── frontend/
+├── data/
+├── docs/
+├── samples/
+├── tests/
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
 
-## Project Status
+Some datasets, SQLite databases, credentials, model artifacts, and experimental files are intentionally excluded from version control. The `docs/` directory and screenshot files should be committed if the README references them.
 
-**Core implementation complete and locally demonstrated.**
+## Current limitations
 
-- Recipe URL extraction: Implemented.
-- CSV processing: Implemented.
-- Video-to-recipe extraction: Implemented.
-- ML classification: Implemented.
-- Classification feedback storage: Implemented.
-- Experimental feedback-aware candidate training: Implemented.
-- Automated backend testing: 81 tests passed.
-- GitHub documentation and demonstration video: Final preparation.
-- Cloud deployment: Deferred unless required.
+- Video-to-recipe extraction is **not instant**; OCR and Gemini processing can take minutes.
+- Some video sources may be private, restricted, removed, or unsupported by the downloader.
+- Gemini may omit or misinterpret ingredients, measurements, or cooking steps.
+- OCR text evidence may miss brief on-screen labels, particularly when frames are sampled less frequently.
+- Ingredient verification badges indicate text matching, not independently proven recipe correctness.
+- Recipe websites differ in markup and may block scraping.
+- Meal-category confidence scores are not calibrated guarantees of correctness.
+- User corrections do not automatically retrain the active model.
+- This is a **local portfolio prototype**, not a production-ready multi-user service.
 
-## Future Improvements
+## Roadmap
 
-Potential future work includes improved recipe classification, stronger ingredient verification, enhanced video processing, automatic retraining with model approval safeguards, authentication, and cloud deployment.
+- [x] Recipe website URL extraction
+- [x] CSV processing and dataset import
+- [x] YouTube and Instagram link-to-recipe extraction
+- [x] Gemini analysis with OCR-assisted ingredient verification
+- [x] SQLite persistence and video-link caching
+- [x] Meal classification and feedback storage
+- [x] Experimental feedback-aware candidate training
+- [ ] Evaluate faster OCR sampling against an accuracy baseline
+- [ ] Improve video-processing progress feedback
+- [ ] Add force re-analysis for cached links
+- [ ] Add a recorded demo and verify all screenshots
+- [ ] Prepare production deployment and multi-user safeguards
+
+## Repository
+
+**Source code:** https://github.com/devshah1601-lgtm/ai-recipe-intelligence
+
+**Live demo:** Not deployed. Run locally using the instructions above.
 
 ---
 
-**AI Recipe Intelligence Platform — A full-stack AI and machine-learning portfolio project.**
+*AI Recipe Intelligence Platform — a full-stack AI and machine-learning portfolio project.*
